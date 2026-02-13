@@ -1,0 +1,3 @@
+../PROX/Src/PROX_prog.c:29:6:PROX_INIT	8	static
+../PROX/Src/PROX_prog.c:49:6:PROX_ResetVelocity	16	static
+../PROX/Src/PROX_prog.c:61:6:PROX_ICUCallBack_ISR	16	static

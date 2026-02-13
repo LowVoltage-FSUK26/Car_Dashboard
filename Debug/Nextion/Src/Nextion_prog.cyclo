@@ -1,0 +1,8 @@
+../Nextion/Src/Nextion_prog.c:43:6:Nextion_AddComp	1
+../Nextion/Src/Nextion_prog.c:51:6:Nextion_SendCommand	1
+../Nextion/Src/Nextion_prog.c:57:6:Nextion_EndCommand	1
+../Nextion/Src/Nextion_prog.c:63:6:Nextion_SetText	1
+../Nextion/Src/Nextion_prog.c:70:6:Nextion_SetVal	1
+../Nextion/Src/Nextion_prog.c:76:6:Nextion_AddGlobalComp	1
+../Nextion/Src/Nextion_prog.c:81:6:Nextion_Set_Vis	1
+../Nextion/Src/Nextion_prog.c:86:6:Nextion_SetPage	1

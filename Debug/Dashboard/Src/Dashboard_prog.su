@@ -1,0 +1,8 @@
+../Dashboard/Src/Dashboard_prog.c:50:6:Dashboard_Init	8	static
+../Dashboard/Src/Dashboard_prog.c:133:6:LabTimer_CallBack_ISR	32	static
+../Dashboard/Src/Dashboard_prog.c:162:6:LabTimerStoped	32	static
+../Dashboard/Src/Dashboard_prog.c:182:6:LabTimer_Buttons_Callback	16	static
+../Dashboard/Src/Dashboard_prog.c:235:6:Debouncing_CallBack	16	static
+../Dashboard/Src/Dashboard_prog.c:285:6:CAN_Message	16	static
+../Dashboard/Src/Dashboard_prog.c:405:6:Nextion_NextPage	8	static
+../Dashboard/Src/Dashboard_prog.c:423:6:Nextion_PrevPage	8	static
