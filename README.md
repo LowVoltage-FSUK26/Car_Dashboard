@@ -90,3 +90,4 @@ To run this project, you will need:
 2. Upload the `.HMI` file (found in `/GUI`) to the display using the Nextion Editor.  
 
 ---
+# Car_Dashboard
