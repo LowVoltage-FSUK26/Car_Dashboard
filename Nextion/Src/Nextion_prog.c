@@ -18,6 +18,7 @@ uint8_t Current_Page=1;
 
 
 
+
 //-----------------------------------------------------------------------------------------------------------------------------
 //void Nextion_Init(UART_HandleTypeDef *huart) // This function will be removed if I didn't think of something to do with it
 //{
@@ -87,6 +88,23 @@ void Nextion_SetPage(UART_HandleTypeDef *huart,char*page)
 {
 	TransmitBufferLength = (uint8_t)sprintf((char *)TransmitBuffer, "page %s", page);
 	Nextion_SendCommand(huart, TransmitBuffer);
+}
+void Nextion_CreateDiagnostics(Nextion T[32], Nextion V[32])
+{
+    for(uint8_t i = 0; i < 32; i++)
+    {
+        const char *page = (i < 16) ? "Diagnostics3" : "Diagnostics4";
+
+        /* -------- T Components -------- */
+        sprintf(T[i].CompName, "T%d", i + 1);
+        T[i].CompID = 0;
+        strcpy(T[i].CompPage, page);
+
+        /* -------- V Components -------- */
+        sprintf(V[i].CompName, "V%d", i + 1);
+        V[i].CompID = 0;
+        strcpy(V[i].CompPage, page);
+    }
 }
 
 

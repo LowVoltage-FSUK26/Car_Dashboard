@@ -23,12 +23,17 @@
 //							  change this number according to your choosen GPIO_PIN of (EXTI_CONTINUE_PAUSE_BUTTON)
 
 //***********************************************************FIX BUTTON PINS**********************************************************************//
-#define			EXTI_NEXT_PAGE_BUTTON		GPIO_PIN_2
-#define			EXTI_NEXT_PAGE_IRQ			EXTI2_IRQn
+#define			EXTI_NEXT_PAGE_BUTTON		GPIO_PIN_13
+#define			EXTI_NEXT_PAGE_IRQ			EXTI15_10_IRQn
 
-#define			EXTI_PREV_PAGE_BUTTON		GPIO_PIN_10
+#define			EXTI_PREV_PAGE_BUTTON		GPIO_PIN_14
 #define			EXTI_PREV_PAGE_IRQ			EXTI15_10_IRQn
 
+#define			EXTI_REGEN_BUTTON		GPIO_PIN_8 //A8
+#define			EXTI_REGEN_IRQ			EXTI8_IRQn
+
+#define			EXTI_DAQ_RESET_BUTTON		GPIO_PIN
+#define			EXTI_DAQ_RESET_IRQ			EXTI15_10_IRQn
 //**************************************************************************************************************************************************//
 //#define			MaxMotor_RPM					6500
 //#define			Num_Motor_Poles					4

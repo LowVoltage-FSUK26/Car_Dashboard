@@ -10,7 +10,7 @@
 #include "Nextion_int.h"
 #include "Nextion_config.h"
 
-extern Current_Page;
+extern uint8_t Current_Page;
 //Includes---------------------------------------------
 
 extern TIM_HandleTypeDef  PROX_TIMER_HANDLE;

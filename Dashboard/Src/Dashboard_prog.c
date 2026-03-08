@@ -44,6 +44,8 @@ Nextion Battery_Temp_Warning;
 Nextion Motor_Temp_Warning;
 Nextion	Error_Warning;
 
+Nextion T[32];
+Nextion V[32];
 
 
 
@@ -92,6 +94,8 @@ void Dashboard_Init(void)
 	Nextion_AddComp(&LF_Travel, "LF_Travel",  13, "Diagnostics2");
 	Nextion_AddComp(&RR_Travel, "RR_Travel",  16, "Diagnostics2");
 	Nextion_AddComp(&LR_Travel, "LR_Travel",  14, "Diagnostics2");
+
+	Nextion_CreateDiagnostics(T,V);
 
 	//Nextion_AddComp(&Batt_Temp, "Batt_Temp",  11, "Diagnostics2");
 
@@ -280,6 +284,22 @@ uint8_t LF_trav_val= 0;
 uint8_t RR_trav_val= 0;
 uint8_t LR_trav_val= 0;
 
+GPIO_TypeDef* LED_PORT[9] = {
+		GPIOB, GPIOB, GPIOB, GPIOB, GPIOB,
+		GPIOA, GPIOA, GPIOA, GPIOA
+};
+
+uint16_t LED_PIN[9] = {
+		GPIO_PIN_11,
+		GPIO_PIN_10,
+		GPIO_PIN_2,
+		GPIO_PIN_1,
+		GPIO_PIN_0,
+		GPIO_PIN_7,
+		GPIO_PIN_6,
+		GPIO_PIN_5,
+		GPIO_PIN_4
+};
 char test_Buffer[30] = {0};
 
 void CAN_Message(CAN_HandleTypeDef *hcan)
@@ -293,7 +313,16 @@ void CAN_Message(CAN_HandleTypeDef *hcan)
 		//little endian might need to be changed later
 		//ERPM_Val = (Received_CAN_Message[0]) | (Received_CAN_Message[1] << 8) | (Received_CAN_Message[2] << 16) | (Received_CAN_Message[3] << 24);
 		ERPM_Val = (Received_CAN_Message[0]<<24) | (Received_CAN_Message[1] << 16) | (Received_CAN_Message[2] << 8) | (Received_CAN_Message[3]);
-		ERPM_Val = (float)(ERPM_Val/200.0) * 100.0; // Mapping ERPM value to percentage scale.
+		ERPM_Val = (float)(ERPM_Val/200.0) * 100.0; // Mapping ERPM value to percentage scale. change 200 to actual max value
+
+
+		uint8_t led_count = (uint8_t)((ERPM_Val / 100.0f) * 9.0f);
+
+		for(uint8_t i=0;i<9;i++)
+		{
+			HAL_GPIO_WritePin(LED_PORT[i], LED_PIN[i],
+					(i < led_count) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+		}
 
 		Nextion_SetVal(&NEXTION_UART_HANDLE, &ERPM_Slider, ERPM_Val);
 		break;
@@ -306,6 +335,7 @@ void CAN_Message(CAN_HandleTypeDef *hcan)
 		MotorTemp_Val = (Received_CAN_Message[6] << 8) | Received_CAN_Message[7];
 		MotorTemp_Val = (float)(MotorTemp_Val/200.0) * 100.0; // Mapping MotrTemp value to percentage scale.
 
+
 		if (MotorTemp_Val>=90)
 		{
 			Nextion_Set_Vis(&huart1, &Motor_Temp_Warning, NEXTION_VIS_ON);
@@ -317,7 +347,7 @@ void CAN_Message(CAN_HandleTypeDef *hcan)
 		Nextion_SetVal(&NEXTION_UART_HANDLE, &Temp_Slider, MotorTemp_Val);
 		break;
 
-	case 0x24: //Throttle & Brake Position, "From the Motor Controller"
+	case 0x24: //Throttle & Brake Position, "From the Motor Controller" //not from controller needs to change
 
 		Thrott_Pos = Received_CAN_Message[0];
 		Thrott_Pos = (float)(Thrott_Pos/200.0) * 100.0;
@@ -360,25 +390,45 @@ void CAN_Message(CAN_HandleTypeDef *hcan)
 	{
 		RF_temp_val = Received_CAN_Message[0];
 		Nextion_SetText(&NEXTION_UART_HANDLE, &RF_Temp, RF_temp_val);
+		break;
 	}
 	case 0x57: // CAN message for LF tire temp
 	{
 		LF_temp_val = Received_CAN_Message[0];
 		Nextion_SetText(&NEXTION_UART_HANDLE, &LF_Temp, LF_temp_val);
+		break;
 	}
 	case 0x58: // CAN message for RR tire temp
 	{
 		RR_temp_val = Received_CAN_Message[0];
 		Nextion_SetText(&NEXTION_UART_HANDLE, &RR_Temp, RR_temp_val);
+		break;
 	}
 	case 0x59: // CAN message for LR tire temp
 	{
 		LR_temp_val = Received_CAN_Message[0];
 		Nextion_SetText(&NEXTION_UART_HANDLE, &LR_Temp, LR_temp_val);
+		break;
 	}
 
 	//one message all travel + brake pressure
 	case 0x60: // CAN message for RF travel temp
+	{
+		if(Current_Page==3)
+		{
+			//fill in v and T from 1-16
+		}
+		else if(Current_Page==4)
+		{
+			//fill in v and T from 17-32
+		}
+		else
+		{
+			break;
+		}
+
+	}
+	case 0x61:
 	{
 
 	}
@@ -415,6 +465,14 @@ void Nextion_NextPage()
 		Current_Page = 3;
 		break;
 	case 3:
+		Nextion_SetPage(&huart1,"Diagnostic3");
+		Current_Page = 4;
+		break;
+	case 4:
+		Nextion_SetPage(&huart1,"Diagnostic4");
+		Current_Page = 5;
+		break;
+	case 5:
 		Nextion_SetPage(&huart1,"Racer_Mode");
 		Current_Page = 1;
 		break;
@@ -425,8 +483,8 @@ void Nextion_PrevPage()
 	switch(Current_Page)
 	{
 	case 1:
-		Nextion_SetPage(&huart1,"Diagnostics2");
-		Current_Page = 3;
+		Nextion_SetPage(&huart1,"Diagnostics4");
+		Current_Page = 5;
 		break;
 	case 2:
 		Nextion_SetPage(&huart1,"Racer_Mode");
@@ -435,6 +493,14 @@ void Nextion_PrevPage()
 	case 3:
 		Nextion_SetPage(&huart1,"Diagnostics");
 		Current_Page = 2;
+		break;
+	case 4:
+		Nextion_SetPage(&huart1,"Diagnostics2");
+		Current_Page = 3;
+		break;
+	case 5:
+		Nextion_SetPage(&huart1,"Diagnostics3");
+		Current_Page = 4;
 		break;
 	}
 }

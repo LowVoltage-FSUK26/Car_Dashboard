@@ -28,7 +28,7 @@ void Nextion_SetVal(UART_HandleTypeDef *huart, Nextion *nex, uint32_t val);
 void Nextion_AddGlobalComp(Nextion *nex, char *_objname, uint8_t _id); //done
 void Nextion_Set_Vis(UART_HandleTypeDef *huart,Nextion*nex, uint8_t state);// done
 void Nextion_SetPage(UART_HandleTypeDef *huart,char*page);// done
-
+void Dashboard_CreateComponents(Nextion *T, Nextion *V);
 
 
 

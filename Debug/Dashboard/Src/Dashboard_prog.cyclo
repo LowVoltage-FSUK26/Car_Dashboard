@@ -1,8 +1,8 @@
-../Dashboard/Src/Dashboard_prog.c:50:6:Dashboard_Init	1
-../Dashboard/Src/Dashboard_prog.c:133:6:LabTimer_CallBack_ISR	1
-../Dashboard/Src/Dashboard_prog.c:162:6:LabTimerStoped	3
-../Dashboard/Src/Dashboard_prog.c:182:6:LabTimer_Buttons_Callback	10
-../Dashboard/Src/Dashboard_prog.c:235:6:Debouncing_CallBack	1
-../Dashboard/Src/Dashboard_prog.c:285:6:CAN_Message	12
-../Dashboard/Src/Dashboard_prog.c:405:6:Nextion_NextPage	5
-../Dashboard/Src/Dashboard_prog.c:423:6:Nextion_PrevPage	5
+../Dashboard/Src/Dashboard_prog.c:52:6:Dashboard_Init	1
+../Dashboard/Src/Dashboard_prog.c:137:6:LabTimer_CallBack_ISR	1
+../Dashboard/Src/Dashboard_prog.c:166:6:LabTimerStoped	3
+../Dashboard/Src/Dashboard_prog.c:186:6:LabTimer_Buttons_Callback	10
+../Dashboard/Src/Dashboard_prog.c:239:6:Debouncing_CallBack	1
+../Dashboard/Src/Dashboard_prog.c:305:6:CAN_Message	16
+../Dashboard/Src/Dashboard_prog.c:455:6:Nextion_NextPage	6
+../Dashboard/Src/Dashboard_prog.c:481:6:Nextion_PrevPage	6
