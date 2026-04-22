@@ -19,6 +19,20 @@ typedef struct
 
 }StopWatch;
 
+typedef union
+{
+	uint8_t bytes[8];
+
+	struct {
+
+		uint16_t slave[4];	//Total Voltage/TEMP of each slave
+							//In case of last frame in chain, It holds TOTAL Battery Voltage/TEMP
+	} frame;
+
+} BMS_CAN_Frame_t;
+
+//BMS_CAN_Frame_t RxData;
+
 
 #define				STOPWATCH_COUNTING			0
 #define				STOPWATCH_PAUSED			1

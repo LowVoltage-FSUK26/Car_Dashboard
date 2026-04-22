@@ -49,10 +49,11 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 CAN_HandleTypeDef hcan;
 
 TIM_HandleTypeDef htim1;
-TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 
@@ -74,6 +75,10 @@ extern Nextion Battery_Perc;
 extern uint8_t Current_Page;
 
 uint16_t adc_value = 0;
+
+//CAN_RxHeaderTypeDef Rx_Led_on;
+//
+//uint8_t RxData[8];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -81,10 +86,10 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_CAN_Init(void);
 static void MX_TIM1_Init(void);
-static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -99,24 +104,48 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 	CAN_Message(hcan);
 }
 
-
+//void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
+//{
+//
+//	if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &Rx_Led_on, RxData) == HAL_OK)
+//	{
+//
+//
+//
+//		//itoa((uint8_t)RxData[0], numBuf, 10);
+//
+////		HAL_UART_Transmit(&huart, (uint8_t*)numBuf, strlen(numBuf), HAL_MAX_DELAY);
+//		//HAL_UART_Transmit(&huart, (uint8_t*)"\r\n", 2, HAL_MAX_DELAY);
+//
+//	}
+//
+//}
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	switch (GPIO_Pin)
 	{
-	case EXTI_CONTINUE_PAUSE_BUTTON: // change to reset timer interface
-		LabTimer_Buttons_Callback(&htim3, GPIO_Pin);
-		break;
-	case EXTI_COUNT_STOP_BUTTON:
-		LabTimer_Buttons_Callback(&htim3, GPIO_Pin);
+	case EXTI_LAP_RESET_BUTTON:     // PA0 - Lap Timer Reset
+		LabTimer_Buttons_Callback(&htim1, GPIO_Pin);
 		break;
 
-	case EXTI_NEXT_PAGE_BUTTON:
+	case EXTI_COUNT_STOP_BUTTON:    // PA1 - Start/Stop
+		LabTimer_Buttons_Callback(&htim1, GPIO_Pin);
+		break;
+
+	case EXTI_DAQ_RESET_BUTTON:     // PA8 - DAQ Reset
+		// TODO: add DAQ reset handler here
+		break;
+
+	case EXTI_PREV_PAGE_BUTTON:     // PB13 - Prev Page
+		Nextion_PrevPage();
+		break;
+
+	case EXTI_NEXT_PAGE_BUTTON:     // PC14 - Next Page
 		Nextion_NextPage();
 		break;
 
-	case EXTI_PREV_PAGE_BUTTON:
-		Nextion_PrevPage();
+	case EXTI_REGEN_BUTTON:         // PB15 - Regen Braking
+		// TODO: add regen braking handler here
 		break;
 
 	default:
@@ -137,23 +166,18 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	if(htim->Instance == PROX_VELOCITY_RESET_NO)
-	{
-		// ICU timeout.
-		PROX_ResetVelocity(&PROX_VELOCITY_RESET_HANDLE);
-	}
-
-	if(htim->Instance == PROX_TIMER_NO)
+	if(htim->Instance == PROX_TIMER_NO)  // TIM3
 	{
 		Global_u32Variable_Overflow_Counter++;
+		PROX_OverflowCallBack_ISR(htim);
 	}
 
-	if(htim->Instance == DASHBOARD_BUTTONS_DEBOUNCE_TIMER_NO)
+	if(htim->Instance == DASHBOARD_BUTTONS_DEBOUNCE_TIMER_NO)  // TIM1
 	{
 		Debouncing_CallBack(&DASHBOARD_BUTTONS_DEBOUNCE_TIMER_HANDLE);
 	}
 
-	if(htim->Instance == DASHBOARD_LABSTOPWATCH_TIMER_NO)
+	if(htim->Instance == DASHBOARD_LABSTOPWATCH_TIMER_NO)  // TIM4
 	{
 		LabTimer_CallBack_ISR();
 	}
@@ -192,13 +216,13 @@ int main(void)
   MX_GPIO_Init();
   MX_CAN_Init();
   MX_TIM1_Init();
-  MX_TIM2_Init();
   MX_TIM3_Init();
   MX_TIM4_Init();
   MX_USART1_UART_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-	HAL_CAN_ActivateNotification(&hcan,CAN_IT_RX_FIFO0_MSG_PENDING);
-	HAL_CAN_Start(&hcan);
+//	HAL_CAN_ActivateNotification(&hcan,CAN_IT_RX_FIFO0_MSG_PENDING);
+//	HAL_CAN_Start(&hcan);
 
 	Dashboard_Init();
 	PROX_INIT();
@@ -238,6 +262,7 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
@@ -267,6 +292,59 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
+  PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Common config
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 1;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_3;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -340,7 +418,7 @@ static void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 7199;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 19999;
+  htim1.Init.Period = 749;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -366,58 +444,6 @@ static void MX_TIM1_Init(void)
 }
 
 /**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM2_Init(void)
-{
-
-  /* USER CODE BEGIN TIM2_Init 0 */
-
-  /* USER CODE END TIM2_Init 0 */
-
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_IC_InitTypeDef sConfigIC = {0};
-
-  /* USER CODE BEGIN TIM2_Init 1 */
-
-  /* USER CODE END TIM2_Init 1 */
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 71;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 65535;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
-  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 0;
-  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM2_Init 2 */
-
-  /* USER CODE END TIM2_Init 2 */
-
-}
-
-/**
   * @brief TIM3 Initialization Function
   * @param None
   * @retval None
@@ -431,14 +457,15 @@ static void MX_TIM3_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_IC_InitTypeDef sConfigIC = {0};
 
   /* USER CODE BEGIN TIM3_Init 1 */
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 7199;
+  htim3.Init.Prescaler = 71;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 9999;
+  htim3.Init.Period = 65535;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -450,9 +477,25 @@ static void MX_TIM3_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_IC_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 0;
+  if (HAL_TIM_IC_ConfigChannel(&htim3, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_IC_ConfigChannel(&htim3, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -552,6 +595,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
@@ -562,6 +606,18 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_10
                           |GPIO_PIN_11|GPIO_PIN_12, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PC14 */
+  GPIO_InitStruct.Pin = GPIO_PIN_14;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PA0 PA1 PA8 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_8;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PA4 PA5 PA6 PA7 */
   GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7;
@@ -579,17 +635,24 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB13 PB14 PB15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15;
+  /*Configure GPIO pins : PB13 PB15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13|GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PA8 */
-  GPIO_InitStruct.Pin = GPIO_PIN_8;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */

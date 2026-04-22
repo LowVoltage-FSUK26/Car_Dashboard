@@ -14,13 +14,17 @@ extern uint8_t Current_Page;
 //Includes---------------------------------------------
 
 extern TIM_HandleTypeDef  PROX_TIMER_HANDLE;
-extern TIM_HandleTypeDef  PROX_VELOCITY_RESET_HANDLE;
 extern UART_HandleTypeDef NEXTION_UART_HANDLE;
 
 extern uint32_t Global_u32Variable_Overflow_Counter;
 
 Prox_Wheel_Velcoity Wheel_Velocity[4] = {0};
 
+/*
+ * Snapshot of the global overflow counter at the last ICU capture.
+ * PROX_OverflowCallBack_ISR measures elapsed overflows relative to this.
+ */
+static int32_t Last_ICU_Overflow_Count = 0;
 
 //Nextion
 Nextion PROX;
@@ -28,120 +32,122 @@ Nextion PROX;
 
 void PROX_INIT()
 {
-    Nextion_AddComp(&PROX, "Speed", 6, "Racer_Mode");
+	Nextion_AddComp(&PROX, "Speed", 6, "Racer_Mode");
 
-    HAL_TIM_Base_Start_IT(&PROX_TIMER_HANDLE);
-    // For the global overflow counter
+	HAL_TIM_Base_Start_IT(&PROX_TIMER_HANDLE);
+	// Starts TIM3 base interrupt for the global overflow counter + software watchdog
 
-    HAL_TIM_IC_Start_IT(&PROX_TIMER_HANDLE, TIM_CHANNEL_1);
-    HAL_TIM_IC_Start_IT(&PROX_TIMER_HANDLE, TIM_CHANNEL_2);
-    // Velocity of the Front wheels
+	HAL_TIM_IC_Start_IT(&PROX_TIMER_HANDLE, TIM_CHANNEL_1);  // PB4
+	HAL_TIM_IC_Start_IT(&PROX_TIMER_HANDLE, TIM_CHANNEL_2);  // PB5
+	// Velocity of the front wheels
 
-    // HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_3);
-    // HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_4);
-    // Velocity of the Rear wheels
-
+	// HAL_TIM_IC_Start_IT(&PROX_TIMER_HANDLE, TIM_CHANNEL_3);
+	// HAL_TIM_IC_Start_IT(&PROX_TIMER_HANDLE, TIM_CHANNEL_4);
+	// Velocity of the rear wheels (reserved)
 }
 
 
-float time_Average = 0;
 uint8_t velocity = 0;
-void PROX_ResetVelocity(TIM_HandleTypeDef *htim)
+
+/*
+ * Called from HAL_TIM_PeriodElapsedCallback when htim->Instance == PROX_TIMER_NO.
+ *
+ * Software watchdog: counts overflows since the last ICU pulse. If the count
+ * reaches VELOCITY_RESET_OVERFLOW_THRESHOLD the sensor has gone quiet, so
+ * velocity is forced to zero.
+ */
+void PROX_OverflowCallBack_ISR(TIM_HandleTypeDef *htim)
 {
-	Nextion_SetVal(&NEXTION_UART_HANDLE, &PROX, 0);
-	velocity = 0;
+	if (htim->Instance != PROX_TIMER_NO)
+		return;
 
-	HAL_TIM_Base_Stop_IT(&PROX_VELOCITY_RESET_HANDLE);
-	// The interrupt of this timer is to ensure that the velocity will be equal zero if no ICU interrupts have been triggered within 100msec.
+	int32_t overflows_since_last_pulse = Global_u32Variable_Overflow_Counter - Last_ICU_Overflow_Count;
 
-	__HAL_TIM_CLEAR_IT(&PROX_VELOCITY_RESET_HANDLE, TIM_IT_UPDATE);
+	if (overflows_since_last_pulse >= VELOCITY_RESET_OVERFLOW_THRESHOLD)
+	{
+		Nextion_SetVal(&NEXTION_UART_HANDLE, &PROX, 0);
+		velocity = 0;
+
+		Wheel_Velocity[FRONT_RIGHT].velocity = 0;
+		Wheel_Velocity[FRONT_LEFT].velocity  = 0;
+
+		// Clamp so the condition doesn't fire every overflow after the car stops
+		Last_ICU_Overflow_Count = Global_u32Variable_Overflow_Counter;
+	}
 }
 
 
 void PROX_ICUCallBack_ISR(TIM_HandleTypeDef *htim)
 {
-	__HAL_TIM_SET_COUNTER(&PROX_VELOCITY_RESET_HANDLE, 0);
-	HAL_TIM_Base_Start_IT(&PROX_VELOCITY_RESET_HANDLE);
-	/* Reseting the timer that sets the velocity into zero. (Think about it like the watchdog timer).*/
-	
-
+	// Refresh the software watchdog on every capture
+	Last_ICU_Overflow_Count = Global_u32Variable_Overflow_Counter;
 
 	/*
-	 The ICU (Input Capture Unit) is used to capture the timer value and calculate the difference between the current and the previous capture.
-	 To achieve higher resolution, we increased the timer clock speed. However, this caused a problem: the timer may overflow multiple times
-	 between two captures.
+     The ICU captures the timer value on each sensor pulse. Because the timer
+     runs fast (1 MHz), it may overflow multiple times between two captures.
+     We track overflows globally and take a per-channel snapshot to compute:
 
-	 To solve this, we count the number of overflows that occur between two captures. Each overflow corresponds to the maximum counter
-	 value of the timer. Therefore, the total elapsed ticks can be calculated as:
-
-	 Total ticks = (overflow count × maximum counter value) + current captured counter value.
-
-	 Since the overflow counter is global, we need to create a local overflow counter for each ICU channel.
-	 This way, each channel tracks its own overflows independently, while still using the global overflow counter as a reference.
+         Total ticks = (overflow count x TIMER_PERIOD) + captured counter value
 	 */
 	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
-	{	
+	{
 		Wheel_Velocity[FRONT_RIGHT].curr = htim->Instance->CCR1;
-		
-		Wheel_Velocity[FRONT_RIGHT].Actual_Overflow_Count = Global_u32Variable_Overflow_Counter - Wheel_Velocity[FRONT_RIGHT].Acculmulated_Overflow_Count;
-//		Wheel_Velocity[FRONT_RIGHT].time = ((int32_t)Wheel_Velocity[FRONT_RIGHT].curr - (int32_t)Wheel_Velocity[FRONT_RIGHT].prev + Wheel_Velocity[FRONT_RIGHT].Actual_Overflow_Count*65535) / 1000000.0;
-																																										//Timer Prescaler
+
+		Wheel_Velocity[FRONT_RIGHT].Actual_Overflow_Count =
+				Global_u32Variable_Overflow_Counter - Wheel_Velocity[FRONT_RIGHT].Acculmulated_Overflow_Count;
 
 		Wheel_Velocity[FRONT_RIGHT].diff = Wheel_Velocity[FRONT_RIGHT].curr - Wheel_Velocity[FRONT_RIGHT].prev;
-		Wheel_Velocity[FRONT_RIGHT].time = (Wheel_Velocity[FRONT_RIGHT].diff + (Wheel_Velocity[FRONT_RIGHT].Actual_Overflow_Count * TIMER_PERIOD)) / TIMER_CLOCK_FREQ;
-
+		Wheel_Velocity[FRONT_RIGHT].time =
+				(Wheel_Velocity[FRONT_RIGHT].diff + (Wheel_Velocity[FRONT_RIGHT].Actual_Overflow_Count * TIMER_PERIOD))
+				/ TIMER_CLOCK_FREQ;
 
 		Wheel_Velocity[FRONT_RIGHT].prev = Wheel_Velocity[FRONT_RIGHT].curr;
 		Wheel_Velocity[FRONT_RIGHT].Acculmulated_Overflow_Count = Global_u32Variable_Overflow_Counter;
 	}
-	
+
 	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
 	{
 		Wheel_Velocity[FRONT_LEFT].curr = htim->Instance->CCR2;
-		
-		Wheel_Velocity[FRONT_LEFT].Actual_Overflow_Count = Global_u32Variable_Overflow_Counter - Wheel_Velocity[FRONT_LEFT].Acculmulated_Overflow_Count;
-//		Wheel_Velocity[FRONT_LEFT].time = ((int32_t)Wheel_Velocity[FRONT_LEFT].curr - (int32_t)Wheel_Velocity[FRONT_LEFT].prev + Wheel_Velocity[FRONT_LEFT].Actual_Overflow_Count*65535) / 1000000.0;
-																																									//Timer Prescaler
+
+		Wheel_Velocity[FRONT_LEFT].Actual_Overflow_Count =
+				Global_u32Variable_Overflow_Counter - Wheel_Velocity[FRONT_LEFT].Acculmulated_Overflow_Count;
 
 		Wheel_Velocity[FRONT_LEFT].diff = Wheel_Velocity[FRONT_LEFT].curr - Wheel_Velocity[FRONT_LEFT].prev;
-		Wheel_Velocity[FRONT_LEFT].time = (Wheel_Velocity[FRONT_LEFT].diff + (Wheel_Velocity[FRONT_LEFT].Actual_Overflow_Count * TIMER_PERIOD)) / TIMER_CLOCK_FREQ;
+		Wheel_Velocity[FRONT_LEFT].time =
+				(Wheel_Velocity[FRONT_LEFT].diff + (Wheel_Velocity[FRONT_LEFT].Actual_Overflow_Count * TIMER_PERIOD))
+				/ TIMER_CLOCK_FREQ;
 
 		Wheel_Velocity[FRONT_LEFT].prev = Wheel_Velocity[FRONT_LEFT].curr;
 		Wheel_Velocity[FRONT_LEFT].Acculmulated_Overflow_Count = Global_u32Variable_Overflow_Counter;
 	}
-	
+
 	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_3)
-	{	
+	{
 		Wheel_Velocity[REAR_LEFT].curr = htim->Instance->CCR3;
-		
 	}
-	
+
 	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
 	{
 		Wheel_Velocity[REAR_RIGHT].curr = htim->Instance->CCR4;
-
 	}
 
 
-
-
-
-	if(Wheel_Velocity[FRONT_RIGHT].time > 0)
+	if (Wheel_Velocity[FRONT_RIGHT].time > 0)
 	{
-		Wheel_Velocity[FRONT_RIGHT].velocity = ((float)CIRCUM / (Wheel_Velocity[FRONT_RIGHT].time * 4)) * 3.6f;
-																							//             ^
-																							// converts m/sec to Km/hr
+		Wheel_Velocity[FRONT_RIGHT].velocity =
+				((float)CIRCUM / (Wheel_Velocity[FRONT_RIGHT].time * 4)) * 3.6f;
+		//                                                              ^ m/s to km/h
 	}
-	if(Wheel_Velocity[FRONT_LEFT].time > 0)
+
+	if (Wheel_Velocity[FRONT_LEFT].time > 0)
 	{
-		Wheel_Velocity[FRONT_LEFT].velocity = ((float)CIRCUM / (Wheel_Velocity[FRONT_LEFT].time * 4)) * 3.6f;
-																						  //             ^
-																						  // converts m/sec to Km/hr
+		Wheel_Velocity[FRONT_LEFT].velocity =
+				((float)CIRCUM / (Wheel_Velocity[FRONT_LEFT].time * 4)) * 3.6f;
+		//                                                             ^ m/s to km/h
 	}
 
-		velocity  = (Wheel_Velocity[FRONT_RIGHT].velocity + Wheel_Velocity[FRONT_LEFT].velocity) / 2;
-		//We only takes the velocity of the front wheels as they are the real indication for the speed of the car.
+	velocity = (Wheel_Velocity[FRONT_RIGHT].velocity + Wheel_Velocity[FRONT_LEFT].velocity) / 2;
+	// Front wheels only — true speed reference for the car
 
-    	Nextion_SetVal(&NEXTION_UART_HANDLE, &PROX, velocity);
-
+	Nextion_SetVal(&NEXTION_UART_HANDLE, &PROX, velocity);
 }

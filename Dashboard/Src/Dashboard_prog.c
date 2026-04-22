@@ -101,21 +101,29 @@ void Dashboard_Init(void)
 
 
 
-	// CAN Filter-----------------------------------------------------
-	//    CAN_FilterTypeDef canfilterconfig;
-	//
-	//    canfilterconfig.FilterActivation     = CAN_FILTER_ENABLE;
-	//    canfilterconfig.FilterFIFOAssignment = CAN_FilterFIFO0;
-	//    canfilterconfig.FilterScale          = CAN_FILTERSCALE_32BIT;
-	//    canfilterconfig.FilterMode		     = CAN_FILTERMODE_IDMASK;
-	//    canfilterconfig.FilterBank           = 0;
-	//    canfilterconfig.FilterMaskIdLow	     = 0x000;
-	//    canfilterconfig.FilterMaskIdHigh     = 0x0F9 << 5;
-	//    canfilterconfig.FilterIdLow          = 0x000;
-	//    canfilterconfig.FilterIdHigh         = 0x020 << 5;
-	//
-	//    HAL_CAN_ConfigFilter(&hcan, &canfilterconfig);
-	//----------------------------------------------------------------
+	CAN_FilterTypeDef canFilterConfig;
+	canFilterConfig.FilterBank = 0;
+	canFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
+	canFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
+	canFilterConfig.FilterIdHigh = 0x0000;
+	canFilterConfig.FilterIdLow = 0x0000;
+	canFilterConfig.FilterMaskIdHigh = 0x0000;
+	canFilterConfig.FilterMaskIdLow = 0x0000;
+	canFilterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;
+	canFilterConfig.FilterActivation = ENABLE;
+	canFilterConfig.SlaveStartFilterBank = 14;
+	if(HAL_CAN_ConfigFilter(&hcan, &canFilterConfig) != HAL_OK)
+	{
+		Error_Handler();
+	}
+	HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING);
+
+	//Page no #96
+	if (HAL_CAN_Start(&hcan) != HAL_OK)
+	{
+		Error_Handler();
+	}
+
 }
 
 
@@ -185,8 +193,8 @@ void LabTimerStoped()
 uint8_t StopWatch_State = STOPWATCH_STOPED;
 void LabTimer_Buttons_Callback(TIM_HandleTypeDef *htim, uint16_t GPIO_Pin)
 {
-	HAL_NVIC_DisableIRQ(EXTI_COUNT_STOP_PIN_IRQ);
-	HAL_NVIC_DisableIRQ(EXTI_CONTINUE_PAUSE_IRQ);
+	HAL_NVIC_DisableIRQ(EXTI_COUNT_STOP_IRQ);
+	HAL_NVIC_DisableIRQ(EXTI_LAP_RESET_IRQ);
 
 	if((GPIO_Pin == EXTI_COUNT_STOP_BUTTON) && (StopWatch_State == STOPWATCH_STOPED))
 	{
@@ -211,27 +219,44 @@ void LabTimer_Buttons_Callback(TIM_HandleTypeDef *htim, uint16_t GPIO_Pin)
 		//-------------------------------------------------------------------
 		HAL_TIM_Base_Start_IT(&DASHBOARD_BUTTONS_DEBOUNCE_TIMER_HANDLE);
 	}
-	else if((GPIO_Pin == EXTI_CONTINUE_PAUSE_BUTTON) && (StopWatch_State == STOPWATCH_COUNTING))
+	//	else if((GPIO_Pin == EXTI_LAP_RESET_BUTTON) && (StopWatch_State != STOPWATCH_STOPED))
+	//	{
+	//		// Reset: stop the timer, clear the count, reset display
+	//		//-------------------------------------------------------------------
+	//
+	//		StopWatch_State = STOPWATCH_STOPED;
+	//		HAL_TIM_Base_Stop_IT(&DASHBOARD_LABSTOPWATCH_TIMER_HANDLE);
+	//
+	//		Lap_Timer.mili_Sec = 0; Lap_Timer.Seconds = 0; Lap_Timer.Minutes = 0;
+	//		Lap_Timer.Sec_dec_1 = 0; Lap_Timer.Sec_dec_2 = 0;
+	//		Lap_Timer.Sec_dig_1 = 0; Lap_Timer.Sec_dig_2 = 0;
+	//		Lap_Timer.Min_d1 = 0; Lap_Timer.Min_d2 = 0;
+	//
+	//		Nextion_SetText(&NEXTION_UART_HANDLE, &Lap_Time, "00:00.00");
+	//
+	//		//-------------------------------------------------------------------
+	//		HAL_TIM_Base_Start_IT(&DASHBOARD_BUTTONS_DEBOUNCE_TIMER_HANDLE);
+	//	}
+	else if((GPIO_Pin == EXTI_LAP_RESET_BUTTON) && (StopWatch_State == STOPWATCH_STOPED))
 	{
-		//-------------------------------------------------------------------
+		// Reset Best Lap
+		BestLap_Flag = 0;
+		BestLap_Centi_Sec = 0;
+		memset(Global_u8Array_Tx_BestLap_Buffer, 0, sizeof(Global_u8Array_Tx_BestLap_Buffer));
 
-		StopWatch_State = STOPWATCH_PAUSED;
-		HAL_TIM_Base_Stop_IT(&DASHBOARD_LABSTOPWATCH_TIMER_HANDLE);
+		// Reset Prev Lap (Last Lap)
+		memset(Global_u8Array_Tx_Buffer, 0, sizeof(Global_u8Array_Tx_Buffer));
 
-		//-------------------------------------------------------------------
+		// Reset all Lap_Timer fields
+		memset(&Lap_Timer, 0, sizeof(Lap_Timer));
+
+		// Reset Nextion displays
+		Nextion_SetText(&NEXTION_UART_HANDLE, &Lap_Time,  "00:00.00");
+		Nextion_SetText(&NEXTION_UART_HANDLE, &Last_Lap,  "00:00.00");
+		Nextion_SetText(&NEXTION_UART_HANDLE, &Best_Lap,  "00:00.00");
+
 		HAL_TIM_Base_Start_IT(&DASHBOARD_BUTTONS_DEBOUNCE_TIMER_HANDLE);
 	}
-	else if((GPIO_Pin == EXTI_CONTINUE_PAUSE_BUTTON) && (StopWatch_State == STOPWATCH_PAUSED))
-	{
-		//-------------------------------------------------------------------
-
-		StopWatch_State = STOPWATCH_COUNTING;
-		HAL_TIM_Base_Start_IT(&DASHBOARD_LABSTOPWATCH_TIMER_HANDLE);
-
-		//-------------------------------------------------------------------
-		HAL_TIM_Base_Start_IT(&DASHBOARD_BUTTONS_DEBOUNCE_TIMER_HANDLE);
-	}
-
 }
 
 
@@ -240,11 +265,21 @@ void Debouncing_CallBack(TIM_HandleTypeDef *htim)
 {
 	HAL_TIM_Base_Stop_IT(&DASHBOARD_BUTTONS_DEBOUNCE_TIMER_HANDLE);
 
+	// Clear pending flags for all buttons
+	__HAL_GPIO_EXTI_CLEAR_FLAG(EXTI_LAP_RESET_BUTTON);
 	__HAL_GPIO_EXTI_CLEAR_FLAG(EXTI_COUNT_STOP_BUTTON);
-	__HAL_GPIO_EXTI_CLEAR_FLAG(EXTI_CONTINUE_PAUSE_BUTTON);
+	__HAL_GPIO_EXTI_CLEAR_FLAG(EXTI_DAQ_RESET_BUTTON);
+	__HAL_GPIO_EXTI_CLEAR_FLAG(EXTI_PREV_PAGE_BUTTON);
+	__HAL_GPIO_EXTI_CLEAR_FLAG(EXTI_NEXT_PAGE_BUTTON);
+	__HAL_GPIO_EXTI_CLEAR_FLAG(EXTI_REGEN_BUTTON);
 
-	HAL_NVIC_EnableIRQ(EXTI_COUNT_STOP_PIN_IRQ);
-	HAL_NVIC_EnableIRQ(EXTI_CONTINUE_PAUSE_IRQ);
+	// Re-enable IRQs
+	HAL_NVIC_EnableIRQ(EXTI_LAP_RESET_IRQ);
+	HAL_NVIC_EnableIRQ(EXTI_COUNT_STOP_IRQ);
+	HAL_NVIC_EnableIRQ(EXTI_DAQ_RESET_IRQ);
+	HAL_NVIC_EnableIRQ(EXTI_PREV_PAGE_IRQ);
+	HAL_NVIC_EnableIRQ(EXTI_NEXT_PAGE_IRQ);
+	HAL_NVIC_EnableIRQ(EXTI_REGEN_IRQ);
 }
 //=============================================================================================================================================================
 //===============================================End: Lap Timer================================================================================================
@@ -302,10 +337,113 @@ uint16_t LED_PIN[9] = {
 };
 char test_Buffer[30] = {0};
 
+BMS_CAN_Frame_t RxData;
+
 void CAN_Message(CAN_HandleTypeDef *hcan)
 {
-	HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &CANRxHeader, (uint8_t*)&Received_CAN_Message);
+	HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &CANRxHeader, RxData.bytes);
+	uint32_t id = CANRxHeader.StdId;
+	//---------------------------------------------------------------------------------------------------------------------------
+	//-----------------------------------------------------------START OF BMS TEST------------------------------------------------
+	//--------------------------------------------------------------------------------------------------------------------------
 
+	//========================================================
+	    // BMS Slave Voltage Frames: CAN_VOLT_ID+0 to CAN_VOLT_ID+7
+	    // Union decode: slave[4] x uint16_t, little-endian (STM32 native)
+	    // Display format: raw / 100 = integer volts  e.g. 372 -> "3 v"
+	    //========================================================
+
+	//========================================================
+	    // BMS Slave Voltage Frames
+	    //========================================================
+	    if (id >= CAN_VOLT_ID && id < (CAN_VOLT_ID + (32 / CAN_DATA_PER_FRAME)))
+	    {
+	        uint8_t first_slave = ((id - CAN_VOLT_ID) * 4) + 1;
+//	        uint8_t first_slave = frame_index * CAN_DATA_PER_FRAME;
+
+//	        memcpy(RxData.bytes, Received_CAN_Message, 8);
+
+	        for (uint8_t i = 0; i < CAN_DATA_PER_FRAME; i++)
+	        {
+	            uint8_t slave_idx = first_slave + i;
+
+	            sprintf(test_Buffer, "%d v", (RxData.frame.slave[i] / 100));
+	            Nextion_SetText(&NEXTION_UART_HANDLE, &V[slave_idx - 1], test_Buffer);
+	        }
+	        return;
+	    }
+
+	    //========================================================
+	    // BMS Slave Temperature Frames
+	    //========================================================
+	    if (id >= CAN_TEMP_ID && id < (CAN_TEMP_ID + (32 / CAN_DATA_PER_FRAME)))
+	    {
+	        uint8_t frame_index = id - CAN_TEMP_ID;
+	        uint8_t first_slave = frame_index * CAN_DATA_PER_FRAME;
+
+	        memcpy(RxData.bytes, Received_CAN_Message, 8);
+
+	        for (uint8_t i = 0; i < CAN_DATA_PER_FRAME; i++)
+	        {
+	            uint8_t slave_idx = first_slave + i;
+
+	            sprintf(test_Buffer, "%d C", (RxData.frame.slave[i] / 100));
+	            Nextion_SetText(&NEXTION_UART_HANDLE, &T[slave_idx], test_Buffer);
+	        }
+	        return;
+	    }
+//	uint32_t id = CANRxHeader.StdId;
+//
+//	//========================================================
+//	// BMS Slave Voltage Frames: CAN_VOLT_ID+0 to CAN_VOLT_ID+7
+//	// Each frame carries 4 slaves, 2 bytes each (big-endian)
+//	//========================================================
+//	if (id >= CAN_VOLT_ID && id < (CAN_VOLT_ID + (32 / CAN_DATA_PER_FRAME)))
+//	{
+//		uint8_t frame_index = id - CAN_VOLT_ID;
+//		uint8_t first_slave = frame_index * CAN_DATA_PER_FRAME;
+//
+//		for (uint8_t i = 0; i < CAN_DATA_PER_FRAME; i++)
+//		{
+//			uint8_t  slave_idx = first_slave + i;
+//			uint16_t raw_val   = ((uint16_t)Received_CAN_Message[i * 2] << 8)
+//	                                		 | Received_CAN_Message[i * 2 + 1];
+//
+//			uint8_t volt_int  = raw_val / 100;
+//			uint8_t volt_deci = raw_val % 100;
+//
+//			sprintf(test_Buffer, "%u.%02u", volt_int, volt_deci);
+//			Nextion_SetText(&NEXTION_UART_HANDLE, &V[slave_idx], test_Buffer);
+//		}
+//		return;
+//	}
+//
+//	//========================================================
+//	// BMS Slave Temperature Frames: CAN_TEMP_ID+0 to CAN_TEMP_ID+7
+//	// Each frame carries 4 slaves, 2 bytes each (big-endian)
+//	//========================================================
+//	if (id >= CAN_TEMP_ID && id < (CAN_TEMP_ID + (32 / CAN_DATA_PER_FRAME)))
+//	{
+//		uint8_t frame_index = id - CAN_TEMP_ID;
+//		uint8_t first_slave = frame_index * CAN_DATA_PER_FRAME;
+//
+//		for (uint8_t i = 0; i < CAN_DATA_PER_FRAME; i++)
+//		{
+//			uint8_t  slave_idx = first_slave + i;
+//			uint16_t raw_val   = ((uint16_t)Received_CAN_Message[i * 2] << 8)
+//	                                		 | Received_CAN_Message[i * 2 + 1];
+//
+//			uint8_t temp_int  = raw_val / 10;
+//			uint8_t temp_deci = raw_val % 10;
+//
+//			sprintf(test_Buffer, "%u.%u", temp_int, temp_deci);
+//			Nextion_SetText(&NEXTION_UART_HANDLE, &T[slave_idx], test_Buffer);
+//		}
+//		return;
+//	}
+	//---------------------------------------------------------------------------------------------------------------------------
+	//-----------------------------------------------------------END OF BMS TEST------------------------------------------------
+	//--------------------------------------------------------------------------------------------------------------------------
 	switch(CANRxHeader.StdId)
 	{
 	case 0x20: //ERPM, "From the Motor Controller" //not correct maybe???
@@ -370,21 +508,21 @@ void CAN_Message(CAN_HandleTypeDef *hcan)
 
 		break;
 		//************************************************************NEW CODE*********************************************************************//
-	case 0x55: // CAN message for battery temp
-		BatteryTemp_Val = (Received_CAN_Message[0]) | (Received_CAN_Message[1] << 8);
-
-		//BatteryTemp_Val = (float)(MotorTemp_Val/200.0) * 100.0; // Mapping Battery Temp value to percentage scale.
-
-		if (BatteryTemp_Val>=90)
-		{
-			Nextion_Set_Vis(&huart1, &Battery_Temp_Warning, NEXTION_VIS_ON);
-		}
-		else
-		{
-			Nextion_Set_Vis(&huart1, &Battery_Temp_Warning, NEXTION_VIS_OFF);
-		}
-		Nextion_SetVal(&NEXTION_UART_HANDLE, &Batt_Temp, BatteryTemp_Val);
-		break;
+		//	case 0x55: // CAN message for battery temp
+		//		BatteryTemp_Val = (Received_CAN_Message[0]) | (Received_CAN_Message[1] << 8);
+		//
+		//		//BatteryTemp_Val = (float)(MotorTemp_Val/200.0) * 100.0; // Mapping Battery Temp value to percentage scale.
+		//
+		//		if (BatteryTemp_Val>=90)
+		//		{
+		//			Nextion_Set_Vis(&huart1, &Battery_Temp_Warning, NEXTION_VIS_ON);
+		//		}
+		//		else
+		//		{
+		//			Nextion_Set_Vis(&huart1, &Battery_Temp_Warning, NEXTION_VIS_OFF);
+		//		}
+		//		Nextion_SetVal(&NEXTION_UART_HANDLE, &Batt_Temp, BatteryTemp_Val);
+		//		break;
 		//each in different message (Needs checking)
 	case 0x56: // CAN message for RF tire temp
 	{
@@ -454,6 +592,7 @@ void CAN_Message(CAN_HandleTypeDef *hcan)
 
 void Nextion_NextPage()
 {
+	HAL_NVIC_DisableIRQ(EXTI_NEXT_PAGE_IRQ);
 	switch(Current_Page)
 	{
 	case 1:
@@ -465,11 +604,11 @@ void Nextion_NextPage()
 		Current_Page = 3;
 		break;
 	case 3:
-		Nextion_SetPage(&huart1,"Diagnostic3");
+		Nextion_SetPage(&huart1,"Diagnostics3");
 		Current_Page = 4;
 		break;
 	case 4:
-		Nextion_SetPage(&huart1,"Diagnostic4");
+		Nextion_SetPage(&huart1,"Diagnostics4");
 		Current_Page = 5;
 		break;
 	case 5:
@@ -477,9 +616,11 @@ void Nextion_NextPage()
 		Current_Page = 1;
 		break;
 	}
+	HAL_TIM_Base_Start_IT(&DASHBOARD_BUTTONS_DEBOUNCE_TIMER_HANDLE);
 }
 void Nextion_PrevPage()
 {
+	HAL_NVIC_DisableIRQ(EXTI_PREV_PAGE_IRQ);
 	switch(Current_Page)
 	{
 	case 1:
@@ -503,10 +644,5 @@ void Nextion_PrevPage()
 		Current_Page = 4;
 		break;
 	}
+	HAL_TIM_Base_Start_IT(&DASHBOARD_BUTTONS_DEBOUNCE_TIMER_HANDLE);
 }
-
-
-
-
-
-
