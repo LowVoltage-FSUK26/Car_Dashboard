@@ -1,8 +1,0 @@
-../Dashboard/Src/Dashboard_prog.c:52:6:Dashboard_Init	3
-../Dashboard/Src/Dashboard_prog.c:145:6:LabTimer_CallBack_ISR	1
-../Dashboard/Src/Dashboard_prog.c:174:6:LabTimerStoped	3
-../Dashboard/Src/Dashboard_prog.c:194:6:LabTimer_Buttons_Callback	8
-../Dashboard/Src/Dashboard_prog.c:264:6:Debouncing_CallBack	1
-../Dashboard/Src/Dashboard_prog.c:342:6:CAN_Message	19
-../Dashboard/Src/Dashboard_prog.c:593:6:Nextion_NextPage	6
-../Dashboard/Src/Dashboard_prog.c:621:6:Nextion_PrevPage	6
