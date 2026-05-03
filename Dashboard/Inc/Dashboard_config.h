@@ -4,9 +4,11 @@
 
 #define         DASHBOARD_BUTTONS_DEBOUNCE_TIMER_HANDLE       htim1
 #define         DASHBOARD_LABSTOPWATCH_TIMER_HANDLE           htim4
+#define 		DASHBOARD_CAN_WATCHDOG_TIMER_HANDLE			  htim2 //using debounce timer as watchodg for can
 
 #define         DASHBOARD_BUTTONS_DEBOUNCE_TIMER_NO           TIM1
 #define         DASHBOARD_LABSTOPWATCH_TIMER_NO               TIM4
+#define  		DASHBOARD_CAN_WATCHDOG_TIMER_NO				  TIM2
 
 #define         EXTI_LAP_RESET_BUTTON       GPIO_PIN_0    // PA0
 #define         EXTI_LAP_RESET_IRQ          EXTI0_IRQn

@@ -43,6 +43,7 @@ Nextion Batt_Temp;
 Nextion Battery_Temp_Warning;
 Nextion Motor_Temp_Warning;
 Nextion	Error_Warning;
+Nextion CAN_Warning;
 
 Nextion T[32];
 Nextion V[32];
@@ -68,6 +69,7 @@ void Dashboard_Init(void)
 	Nextion_AddComp(&Battery_Temp_Warning, "Battery_Warn",25, "Racer_Mode"); //set vis to 0 in init
 	Nextion_AddComp(&Motor_Temp_Warning, "Motor_Warn",26, "Racer_Mode");  //set vis to 0
 	Nextion_AddComp(&Error_Warning, "Error_Warning",27, "Racer_Mode"); //set vis to 0
+	Nextion_AddComp(&CAN_Warning, "CAN_Warning",31,"Racer_Mode"); //set vis to 0
 	//Diagnostic page Comps
 	//	Nextion_AddComp(&Temp_Slider, "Temp_Slider",  7, "Diagnostics");
 	//	Nextion_AddComp(&Throttle_Slider, "Thrott_Slider",  2, "Diagnostics");
@@ -84,6 +86,7 @@ void Dashboard_Init(void)
 	Nextion_Set_Vis(&huart1, &Battery_Temp_Warning,NEXTION_VIS_OFF);
 	Nextion_Set_Vis(&huart1, &Motor_Temp_Warning,NEXTION_VIS_OFF);
 	Nextion_Set_Vis(&huart1, &Error_Warning,NEXTION_VIS_OFF);
+	Nextion_Set_Vis(&huart1, &CAN_Warning,NEXTION_VIS_OFF);
 
 	//	Nextion_AddComp(&Temp_Slider, "Temp_Slider",  7, "Diagnostics2");
 	//	Nextion_AddComp(&Throttle_Slider, "Thrott_Slider",  2, "Diagnostics2");
@@ -144,6 +147,7 @@ StopWatch Lap_Timer = {0};
 char Global_u8Array_Tx_Buffer[30] = {0};
 void LabTimer_CallBack_ISR()
 {
+	 Dashboard_CheckCAN(); //remove if CAN watchdog test does not work
 	Lap_Timer.mili_Sec += 1;
 
 	Lap_Timer.Sec_dec_1 = Lap_Timer.mili_Sec % 10;
@@ -319,6 +323,8 @@ uint8_t LF_trav_val= 0;
 uint8_t RR_trav_val= 0;
 uint8_t LR_trav_val= 0;
 
+volatile uint32_t last_can_rx_tick =0; //remove if CAN watchdog doesnt work
+volatile uint8_t can_initialized= 0;
 GPIO_TypeDef* LED_PORT[9] = {
 		GPIOB, GPIOB, GPIOB, GPIOB, GPIOB,
 		GPIOA, GPIOA, GPIOA, GPIOA
@@ -341,6 +347,8 @@ BMS_CAN_Frame_t RxData;
 
 void CAN_Message(CAN_HandleTypeDef *hcan)
 {
+	last_can_rx_tick = TIM2->CNT; //if can watchdog does not work remove
+	can_initialized = 1; //if can watchdog does not work remove
 	HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &CANRxHeader, RxData.bytes);
 	uint32_t id = CANRxHeader.StdId;
 	//---------------------------------------------------------------------------------------------------------------------------
@@ -361,7 +369,7 @@ void CAN_Message(CAN_HandleTypeDef *hcan)
 	        uint8_t first_slave = ((id - CAN_VOLT_ID) * 4) + 1;
 //	        uint8_t first_slave = frame_index * CAN_DATA_PER_FRAME;
 
-//	        memcpy(RxData.bytes, Received_CAN_Message, 8);
+//	        memcpy(RxData.bytes, Received_CAN_Message, 8); //raga3ha lw bayez !!!!!!!!!!!!!!!!!!!
 
 	        for (uint8_t i = 0; i < CAN_DATA_PER_FRAME; i++)
 	        {
@@ -378,17 +386,17 @@ void CAN_Message(CAN_HandleTypeDef *hcan)
 	    //========================================================
 	    if (id >= CAN_TEMP_ID && id < (CAN_TEMP_ID + (32 / CAN_DATA_PER_FRAME)))
 	    {
-	        uint8_t frame_index = id - CAN_TEMP_ID;
-	        uint8_t first_slave = frame_index * CAN_DATA_PER_FRAME;
+	        uint8_t first_slave = ((id - CAN_TEMP_ID)*4)+1;
+	       // uint8_t first_slave = frame_index * CAN_DATA_PER_FRAME;
 
-	        memcpy(RxData.bytes, Received_CAN_Message, 8);
+	       // memcpy(RxData.bytes, Received_CAN_Message, 8); //raga3ha lw lesa bayez.!!!!!!!!!!!!!!
 
 	        for (uint8_t i = 0; i < CAN_DATA_PER_FRAME; i++)
 	        {
 	            uint8_t slave_idx = first_slave + i;
 
 	            sprintf(test_Buffer, "%d C", (RxData.frame.slave[i] / 100));
-	            Nextion_SetText(&NEXTION_UART_HANDLE, &T[slave_idx], test_Buffer);
+	            Nextion_SetText(&NEXTION_UART_HANDLE, &T[slave_idx-1], test_Buffer);
 	        }
 	        return;
 	    }
@@ -645,4 +653,31 @@ void Nextion_PrevPage()
 		break;
 	}
 	HAL_TIM_Base_Start_IT(&DASHBOARD_BUTTONS_DEBOUNCE_TIMER_HANDLE);
+}
+
+
+//----------------------CAN WATCHDOG TEST------------------------
+#define CAN_TIMEOUT_MS 500
+
+uint8_t CAN_Status = 0; // 0 = OK, 1 = ERROR, 2 = NOT STARTED
+
+void Dashboard_CheckCAN(void)
+{
+    uint32_t now = TIM2->CNT;
+
+    if (!can_initialized)
+    {
+        CAN_Status = 2;
+        Nextion_Set_Vis(&huart1, &CAN_Warning, NEXTION_VIS_ON);
+    }
+    else if ((now - last_can_rx_tick) > CAN_TIMEOUT_MS)
+    {
+        CAN_Status = 1;
+        Nextion_Set_Vis(&huart1, &CAN_Warning, NEXTION_VIS_ON);
+    }
+    else
+    {
+        CAN_Status = 0;
+        Nextion_Set_Vis(&huart1, &CAN_Warning, NEXTION_VIS_OFF);
+    }
 }

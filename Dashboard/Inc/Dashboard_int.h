@@ -50,6 +50,8 @@ void Debouncing_CallBack(TIM_HandleTypeDef *htim);
 void Nextion_NextPage(); //--> for buttons done
 void Nextion_PrevPage(); //--> for buttons done
 
+void Dashboard_CheckCAN(void);
+
 
 
 void CAN_Message(CAN_HandleTypeDef *hcan);
